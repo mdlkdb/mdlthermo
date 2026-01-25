@@ -1,3 +1,3 @@
-from modules import GroupContribution as GC
+from modules import GroupDescriptor as GC
 
 GC.DefaultGroups
