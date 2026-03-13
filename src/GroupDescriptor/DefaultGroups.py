@@ -1,5 +1,0 @@
-Organic = []
-NistUnifac = []
-Joback = []
-MarreoGaniFirst = []
-MarroGaniSecond = []

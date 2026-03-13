@@ -82,7 +82,7 @@ def _map_groups(
         raise ValueError("Mol is None")
 
     group_index: Dict[int, Tuple[MatchedAtoms, GroupIdx]] = {}
-    heavy_atoms: set[int] = {atom.GetIdx() for atom in mol.GetHeavyAtoms()}
+    heavy_atoms: set[int] = {atom.GetIdx() for atom in mol.GetAtoms()}
 
     for group_idx, smarts in enumerate(groups):
         patt = Chem.MolFromSmarts(smarts)
