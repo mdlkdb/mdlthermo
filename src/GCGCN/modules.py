@@ -1,13 +1,16 @@
 import json
 from os.path import join as opj
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, List
 
 import numpy as np
+from numpy import typing as npt
 from rdkit.Chem import Descriptors, MolFromSmarts, MolFromSmiles
 from rdkit import Chem
 from scipy.linalg import fractional_matrix_power
 
+from . import _utils as u
+from ..descriptor import get_molecular_graph
 
 FILE_DIR = Path(__file__).parent
 
@@ -285,16 +288,15 @@ def GCGCN(nfm: np.ndarray, efm: np.ndarray, param_list: list) -> float:
     # GC-GCN layer
     x = np.dot(efm, nfm)
     x = np.dot(x, param_list[0]) + param_list[1]
-    x = np.where(x > 0, x, 0)  # ReLU
+    x = np.where(x > 0, x, 0)
 
     # GC-GCN layer
     x = np.dot(efm, x)
     x = np.dot(x, param_list[2]) + param_list[3]
-    x = np.where(x > 0, x, 0)  # ReLU
+    x = np.where(x > 0, x, 0)
 
     # Node-wise summation
-    x = x.reshape(-1)
-    x = np.dot(x, param_list[4])
+    x = np.sum(x, axis=0)
 
     # Dense layer
     x = np.dot(x, param_list[5]) + param_list[6]
@@ -324,14 +326,15 @@ def predict_HFORM(SMILES: str) -> Tuple[float, float]:
     Tuple[float, float]
         Predicted heat of formation and its uncertainty. (kJ/mol)
     """
-    nfm, efm = _get_input_matrices(SMILES)
+    nfm, efm = get_molecular_graph(SMILES, u.GCGCN_smarts, max_nodes=30)
+    # nfm, efm = _get_input_matrices(SMILES)
 
-    result = []
+    result: List[float] = []
     for param_list in HFORM_param_list:
         result.append(5400 * GCGCN(nfm, efm, param_list) - 4000)
 
-    val = np.average(result)
-    unc = np.std(result)
+    val = np.average(result).item()
+    unc = np.std(result).item()
 
     return val, unc
 
