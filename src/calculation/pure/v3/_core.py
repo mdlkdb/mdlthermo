@@ -1,14 +1,18 @@
 import json
-from os.path import join as opj
 from pathlib import Path
+from functools import cache
+from typing import Literal
 
 import numpy as np
 from rdkit import Chem
 from scipy.linalg import fractional_matrix_power
 
-FILE_DIR = Path(__file__).parent
 
-smarts_pvap_list = [
+__all__ = ["embed_smiles", "predict_Vp"]
+
+
+FILE_PATH = Path(__file__).parent
+SMARTS_LIST = [
     "[CX4v4]",
     "[CX3v4;$([CX3v4](=*))]",
     "[CX2v4;$([CX2v4](=*)(=*))]",
@@ -39,7 +43,32 @@ smarts_pvap_list = [
 ]
 
 
-def get_pvap_h(mol):
+class V3GCGCNInput:
+    nfm: np.ndarray[tuple[int, int], np.dtype[np.float64]]
+    efm: np.ndarray[tuple[int, int], np.dtype[np.float64]]
+
+
+@cache
+def _load_parameters(model_name: Literal["Antoine", "Wagner", "King-Al-Najjar"]):
+    if model_name == "Antoine":
+        with open(FILE_PATH / "antoine_param.json", "rb") as f:
+            param_list = json.load(f)
+        alpha = 0.01
+    elif model_name == "Wagner":
+        with open(FILE_PATH / "wagner_param.json", "rb") as f:
+            param_list = json.load(f)
+        alpha = 0.1
+    elif model_name == "King-Al-Najjar":
+        with open(FILE_PATH / "kingalnajjar_param.json", "rb") as f:
+            param_list = json.load(f)
+        alpha = 0.01
+    else:
+        raise ValueError("Unsupported model name")
+
+    return param_list, alpha
+
+
+def get_pvap_h(mol: Chem.Mol):
     """Get the feature matrix of the molecule.
 
     The index of the feature matrix corresponds to each group of the group
@@ -68,7 +97,7 @@ def get_pvap_h(mol):
         raise ValueError("The molecule is too large.")
 
     # Find the SMARTS patterns
-    for smarts_id, smarts in enumerate(smarts_pvap_list):
+    for smarts_id, smarts in enumerate(SMARTS_LIST):
         atom_id = mol.GetSubstructMatches(Chem.MolFromSmarts(smarts))
         atom_id = np.array(atom_id).flatten()
 
@@ -94,8 +123,9 @@ def get_pvap_h(mol):
     return h
 
 
-def get_pvap_a(mol):
-    """Get the normalized adjacency matrix of the molecule.
+def get_pvap_a(mol: Chem.Mol):
+    """
+    Get the normalized adjacency matrix of the molecule.
 
     Parameters
     ----------
@@ -127,8 +157,9 @@ def get_pvap_a(mol):
     return a_norm
 
 
-def get_pvap_input(smiles):
-    """Get the matrices of the molecule.
+def embed_smiles(SMILES: str) -> V3GCGCNInput:
+    """
+    Get the matrices of the molecule.
 
     Parameters
     ----------
@@ -151,18 +182,21 @@ def get_pvap_input(smiles):
     --------
     get_h, get_a
     """
-    mol = Chem.MolFromSmiles(smiles)
+    mol = Chem.MolFromSmiles(SMILES)
 
     if mol is None:
         raise ValueError("The molecule could not interpreted.")
-    else:
-        h = get_pvap_h(mol)
-        a = get_pvap_a(mol)
 
-    return h, a
+    h = get_pvap_h(mol)
+    a = get_pvap_a(mol)
+    x = V3GCGCNInput()
+    x.nfm = h
+    x.efm = a
+
+    return x
 
 
-def pred_pvap(a, h, t, pvap_model):
+def pred_pvap(a, h, t, pvap_model: Literal["Antoine", "Wagner", "King-Al-Najjar"]):
     """Predicts the natural logarithm of vapor pressure.
 
     Predicts the natural logarithm of vapor pressure (ln P) for a compound
@@ -196,24 +230,7 @@ def pred_pvap(a, h, t, pvap_model):
     output depends on the selected vapor pressure model (Antoine, Wagner,
     or King-Al-Najjar) and is calculated using model-specific equations.
     """
-    # Get parameters for vapor pressure model
-    if pvap_model == "Antoine":
-        with open(opj(FILE_DIR, "parameters", "antoine_param.json"), "rb") as f:
-            param_list = json.load(f)
-        alpha = 0.01
-
-    elif pvap_model == "Wagner":
-        with open(opj(FILE_DIR, "parameters", "wagner_param.json"), "rb") as f:
-            param_list = json.load(f)
-        alpha = 0.1
-
-    elif pvap_model == "King-Al-Najjar":
-        with open(opj(FILE_DIR, "parameters", "kingalnajjar_param.json"), "rb") as f:
-            param_list = json.load(f)
-        alpha = 0.01
-
-    else:
-        raise ValueError("The vapor pressure model is not interpreted.")
+    param_list, alpha = _load_parameters(pvap_model)
 
     # Graph convolutional layer 1
     x = np.matmul(a, np.matmul(h, param_list[0])) + param_list[1]
@@ -274,14 +291,12 @@ def pred_pvap(a, h, t, pvap_model):
     # Vapor pressure model
     if pvap_model == "Antoine":
         ln_p = x[0] - x[1] / (t + x[2])
-
-    if pvap_model == "Wagner":
+    elif pvap_model == "Wagner":
         tau = np.max([0.0, 1 - 0.001 * t / (x[4] + 1.5)])
         ln_p = (
             x[0] * tau + x[1] * tau**1.5 + x[2] * tau**2.5 + x[3] * tau**5
         ) / (1 - tau) + x[5]
-
-    if pvap_model == "King-Al-Najjar":
+    elif pvap_model == "King-Al-Najjar":
         tau = np.max([0.0, 1 - 0.001 * t / (x[4] + 1.5)])
         ln_p = (
             (-x[0] - x[1]) * tau**0.5
@@ -295,7 +310,7 @@ def pred_pvap(a, h, t, pvap_model):
     return ln_p
 
 
-def pred_pvap_ensemble(a, h, t):
+def pred_pvap_ensemble(a, h, t) -> float:
     """Predicts vapor pressure by applying an ensemble.
 
     Predicts vapor pressure by applying an ensemble of multiple vapor
@@ -328,13 +343,13 @@ def pred_pvap_ensemble(a, h, t):
 
     # Get ensemble
     ln_p = 0.249305638 * ln_p1 + 0.234145692 * ln_p2 + 0.51654867 * ln_p3
-
     p = np.exp(ln_p * np.log(10)) / 1000  # kPa
 
     return p
 
 
-def predict_vapor_pressure(SMILES: str, T: float):
-    h, a = get_pvap_input(SMILES)
+def predict_Vp(_x: V3GCGCNInput, T: float) -> float:
+    h = _x.nfm
+    a = _x.efm
 
     return pred_pvap_ensemble(a, h, T)
