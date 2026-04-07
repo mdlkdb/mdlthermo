@@ -1,7 +1,8 @@
 import re
-from typing import Tuple, List, Dict
+from typing import Dict
 
 import numpy as np
+import numpy.typing as npt
 
 from rdkit import Chem
 from rdkit.Chem import Descriptors
@@ -13,14 +14,14 @@ __all__ = ["get_molecular_descriptor", "get_molecular_graph", "sort_groups"]
 
 AtomIdx = int
 GroupIdx = int
-MatchedAtoms = Tuple[AtomIdx, ...]
+MatchedAtoms = tuple[AtomIdx, ...]
 
 
 def _map_groups(
     mol: Chem.Mol,
-    groups: List[str],
+    groups: list[str],
     strict: bool = True,
-) -> Dict[int, Tuple[MatchedAtoms, GroupIdx]]:
+) -> Dict[int, tuple[MatchedAtoms, GroupIdx]]:
     """
     Map functional groups to atom indices in a molecule.
 
@@ -81,7 +82,7 @@ def _map_groups(
     if mol is None:
         raise ValueError("Mol is None")
 
-    group_index: Dict[int, Tuple[MatchedAtoms, GroupIdx]] = {}
+    group_index: Dict[int, tuple[MatchedAtoms, GroupIdx]] = {}
     heavy_atoms: set[int] = {atom.GetIdx() for atom in mol.GetAtoms()}
 
     for group_idx, smarts in enumerate(groups):
@@ -97,19 +98,73 @@ def _map_groups(
                     heavy_atoms -= match_set
 
     if strict and len(heavy_atoms) != 0:
-        raise Exception(
+        raise ValueError(
             "Unmatched atoms remain; molecule is not fully covered by the provided functional groups"
         )
 
     return group_index
 
 
+def _compute_sort_key(smarts: str) -> tuple[int, int, float, int, int, int]:
+    patt = Chem.MolFromSmarts(smarts)
+    if patt is None:
+        raise ValueError(f"Invalid SMARTS: {smarts}")
+
+    # 1. Ring / aromaticity
+    have_ring = False
+    if re.search(r"(?<!!)R;|;R(?![^\[]*])", smarts):
+        have_ring = True
+    if re.search(r"(?<![A-Z])[cno]", smarts):
+        have_ring = True
+
+    # 2. Heavy atoms
+    num_heavy_atoms = patt.GetNumHeavyAtoms()
+
+    # 3. Molecular weight (heavy atoms)
+    mw = Descriptors.HeavyAtomMolWt(patt)
+
+    # 4. Available connections
+    num_available_connections = 0
+    for atom in patt.GetAtoms():
+        if atom.IsInRing() or atom.GetIsAromatic():
+            have_ring = True
+
+        atom_smarts = re.sub(r"\$\([^)]*\)", "", atom.GetSmarts())
+
+        m = re.search(r"X(\d+)", atom_smarts)
+        max_connections = int(m.group(1)) if m else 1
+
+        m = re.search(r"H(\d+)", atom_smarts)
+        hydrogens = int(m.group(1)) if m else 0
+
+        num_available_connections += max_connections - hydrogens - atom.GetDegree()
+
+    # 5. Double bonds
+    num_double_bonds = sum(
+        1 for b in patt.GetBonds() if b.GetBondType() == Chem.BondType.DOUBLE
+    )
+
+    # 6. Triple bonds
+    num_triple_bonds = sum(
+        1 for b in patt.GetBonds() if b.GetBondType() == Chem.BondType.TRIPLE
+    )
+
+    return (
+        -int(have_ring),
+        -num_heavy_atoms,
+        -mw,
+        num_available_connections,
+        -num_double_bonds,
+        -num_triple_bonds,
+    )
+
+
 def get_molecular_descriptor(
     SMILES: str,
-    groups: List[str],
+    groups: list[str],
     strict=True,
     sanitize_mol=True,
-) -> List[int]:
+) -> list[int]:
     """
     Generate a molecular descriptor vector based on functional group occurrences.
 
@@ -175,13 +230,13 @@ def get_molecular_descriptor(
 
 def get_molecular_graph(
     SMILES: str,
-    groups: List[str],
+    groups: list[str],
     max_nodes=30,
     normalize=True,
     self_loop=True,
     strict=True,
     sanitize_mol=True,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """
     Convert a molecule into a graph representation based on functional groups.
 
@@ -295,61 +350,7 @@ def get_molecular_graph(
     return nfm, efm
 
 
-def _compute_sort_key(smarts: str) -> Tuple:
-    patt = Chem.MolFromSmarts(smarts)
-    if patt is None:
-        raise ValueError(f"Invalid SMARTS: {smarts}")
-
-    # 1. Ring / aromaticity
-    have_ring = False
-    if re.search(r"(?<!!)R;|;R(?![^\[]*])", smarts):
-        have_ring = True
-    if re.search(r"(?<![A-Z])[cno]", smarts):
-        have_ring = True
-
-    # 2. Heavy atoms
-    num_heavy_atoms = patt.GetNumHeavyAtoms()
-
-    # 3. Molecular weight (heavy atoms)
-    mw = Descriptors.HeavyAtomMolWt(patt)
-
-    # 4. Available connections
-    num_available_connections = 0
-    for atom in patt.GetAtoms():
-        if atom.IsInRing() or atom.GetIsAromatic():
-            have_ring = True
-
-        atom_smarts = re.sub(r"\$\([^)]*\)", "", atom.GetSmarts())
-
-        m = re.search(r"X(\d+)", atom_smarts)
-        max_connections = int(m.group(1)) if m else 1
-
-        m = re.search(r"H(\d+)", atom_smarts)
-        hydrogens = int(m.group(1)) if m else 0
-
-        num_available_connections += max_connections - hydrogens - atom.GetDegree()
-
-    # 5. Double bonds
-    num_double_bonds = sum(
-        1 for b in patt.GetBonds() if b.GetBondType() == Chem.BondType.DOUBLE
-    )
-
-    # 6. Triple bonds
-    num_triple_bonds = sum(
-        1 for b in patt.GetBonds() if b.GetBondType() == Chem.BondType.TRIPLE
-    )
-
-    return (
-        -int(have_ring),
-        -num_heavy_atoms,
-        -mw,
-        num_available_connections,
-        -num_double_bonds,
-        -num_triple_bonds,
-    )
-
-
-def sort_groups(groups: List[str]) -> List[str]:
+def sort_groups(groups: list[str]) -> list[str]:
     """
     Sort SMARTS patterns according to chemically motivated priority rules.
 

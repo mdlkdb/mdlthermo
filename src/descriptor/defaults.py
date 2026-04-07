@@ -1,4 +1,4 @@
-Organic = [
+ORGANIC = [
     "[CX4H3]",
     "[CX3H2v4]",
     "[CX2H1v4]",
@@ -45,7 +45,6 @@ Organic = [
     "[SX2H0v2;R]",
     "[sX2h0v2;R]",
     "[SX1H0v2]",
-    # Silicon
     "[SiX4H3,SiX1]",
     "[SiX4H2,SiX2]",
     "[SiX4H1,SiX3]",

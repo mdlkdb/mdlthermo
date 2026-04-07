@@ -1,5 +1,14 @@
 # Installation
 
+```
+# TODO
+
+1. default groups 완성 하기
+2.
+3.
+4.
+```
+
 git bash
 
 ```
