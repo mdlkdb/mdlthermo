@@ -1073,7 +1073,7 @@ class COSMOSAC:
         return gam
 
 
-def get_COSMO_file_dir(SMILES: str) -> (str | None):
+def get_COSMO_file_dir(SMILES: str) -> str | None:
     """Get COSMO file's directory if there is already calculated molecule.
 
     Parameters
@@ -1093,11 +1093,11 @@ def get_COSMO_file_dir(SMILES: str) -> (str | None):
         InChIKey_to_index = json.load(json_file)
 
     try:
-       InChIKey = Chem.inchi.MolToInchiKey(Chem.MolFromSmiles(SMILES))
+        InChIKey = Chem.inchi.MolToInchiKey(Chem.MolFromSmiles(SMILES))
     except ValueError:
         raise ValueError("The molecule is not supported.")
 
-    if InChIKey in InChIKey_to_index:  # If InchIKey is in the dctionary keys
+    if InChIKey in InChIKey_to_index:  # If InchIKey is in the dictonary keys
         COSMO_file_dir = opj(
             FILE_DIR,
             "cosmo_files",
@@ -1238,4 +1238,26 @@ def pred_COSMO_with_numpy(efm, nfm, param_list):
     x = np.where(x > 0, x, 0)
 
     x = np.dot(x, param_list[10]) + param_list[11]
+
     return x
+
+
+def cal_binary(
+    SMILES1: str,
+    SMILES2: str,
+    x1: float,
+    x2: float,
+    T: float,
+    predict=False,
+) -> tuple[float]:
+    if predict:
+        COSMOSAC_module = COSMOSAC(version=2010, predict=True)
+    else:
+        COSMOSAC_module = COSMOSAC(version=2019, predict=False)
+
+    COSMOSAC_module.add_comp(SMILES=SMILES1)
+    COSMOSAC_module.add_comp(SMILES=SMILES2)
+    COSMOSAC_module.x = [x1, x2]
+    COSMOSAC_module.T = T
+
+    return COSMOSAC_module.gam()
