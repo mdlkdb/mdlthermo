@@ -1,1 +1,2 @@
-from .modules.EOS.peng_robinson.PR import Peng_Robinson
+from ._schema import Compounds
+from .VLE import BinaryVLECalculationModule
