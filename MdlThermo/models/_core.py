@@ -131,3 +131,40 @@ def GCGCN(*, node_feature_dim: int, graph_dim: int, hidden_dim: int) -> keras.Mo
     model.summary()
 
     return model
+
+
+def GCMLP(input_dim: int, hidden_dim: int) -> keras.Model:
+    # Inputs
+    x = keras.Input(name="Input", shape=(input_dim,))
+    y = keras.layers.Dense(
+        hidden_dim,
+        kernel_initializer="he_normal",
+        bias_initializer="he_normal",
+        activation="leaky_relu",
+        name="Dense 1",
+    )(x)
+    y = keras.layers.Dense(
+        hidden_dim,
+        kernel_initializer="he_normal",
+        bias_initializer="he_normal",
+        activation="leaky_relu",
+        name="Dense 2",
+    )(y)
+    y = keras.layers.Dense(
+        hidden_dim,
+        kernel_initializer="he_normal",
+        bias_initializer="he_normal",
+        activation="leaky_relu",
+        name="Dense 3",
+    )(y)
+    y = keras.layers.Dense(
+        1,
+        kernel_initializer="he_normal",
+        bias_initializer="he_normal",
+        name="Ouput",
+    )(y)
+
+    model = keras.Model(inputs=x, outputs=y)
+    model.summary()
+
+    return model
